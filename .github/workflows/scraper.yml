@@ -35,3 +35,17 @@ jobs:
         WEBSITE_URL: ${{ secrets.WEBSITE_URL }}
       run: |
         python main.py
+    
+    # ========== بخش جدید: آپلود فایل‌های دیباگ ==========
+    - name: Upload debug files
+      if: always()  # حتی اگه خطا هم باشه، آپلود میکنه
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-files-${{ github.run_id }}
+        path: |
+          *.html
+          *.log
+          *.db
+          *.txt
+        retention-days: 3  # فایل‌ها ۳ روز نگه داشته میشن
+    # ===================================================

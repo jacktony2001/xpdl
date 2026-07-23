@@ -27,7 +27,15 @@ SCRAPER_CONFIG = {
         "sponsor",
         "banner",
         "popup"
-    ]
+    ],
+    # تنظیمات فشرده‌سازی
+    "compression": {
+        "enabled": True,
+        "max_size_mb": 45,  # حداکثر حجم نهایی (کمی کمتر از 50)
+        "scale": "854:480",  # رزولوشن (480p)
+        "crf": 28,           # کیفیت (23=خوب, 28=متوسط, 35=پایین)
+        "audio_bitrate": "96k"
+    }
 }
 
 CHROME_OPTIONS = [

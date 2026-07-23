@@ -65,10 +65,9 @@ class VideoScraper:
         try:
             logger.info(f"🔄 در حال اتصال به صفحه اصلی: {WEBSITE_URL}")
             self.driver.get(WEBSITE_URL)
-            # افزایش زمان انتظار برای بارگذاری کامل صفحه اصلی
             time.sleep(SCRAPER_CONFIG.get("wait_time", 7)) 
             
-            self._scroll_to_load_more() # اسکرول برای بارگذاری بیشتر
+            self._scroll_to_load_more() 
 
             homepage_selectors = [
                 "a.video-link",
@@ -108,39 +107,69 @@ class VideoScraper:
             logger.info(f"🔄 در حال ورود به صفحه ویدیو: {video_page_url}")
             self.driver.get(video_page_url)
             # افزایش زمان انتظار برای بارگذاری صفحه ویدیو
-            time.sleep(SCRAPER_CONFIG.get("wait_time", 6)) 
+            time.sleep(SCRAPER_CONFIG.get("wait_time", 7)) # کمی بیشتر منتظر میمونیم
 
             # --- بخش اول: تلاش برای پیدا کردن لینک دانلود با سلکتور دقیق شما ---
+            # این سلکتور باید کار کنه چون خودت تأیید کردی
             primary_download_selector = "p.text-center.download-ready a"
             download_elements = self._find_elements([primary_download_selector])
             
             if download_elements:
                 href = download_elements[0].get_attribute("href")
-                if href and href.endswith('.mp4'):
+                # چک می‌کنیم که لینک mp4 باشه و واقعاً شروع میشه با mp4-cdn
+                if href and href.endswith('.mp4') and "mp4-cdn" in href:
                     final_url = href
                     logger.info(f"✅ لینک دانلود ویدیو با سلکتور دقیق '{primary_download_selector}' پیدا شد: {final_url}")
                     return final_url
             
-            # اگر لینک دانلود پیدا نشد، دلیلش رو لاگ کن
             if not final_url:
-                logger.warning(f"⚠️ لینک دانلود با سلکتور دقیق '{primary_download_selector}' پیدا نشد.")
+                logger.warning(f"⚠️ لینک دانلود با سلکتور دقیق '{primary_download_selector}' پیدا نشد (یا فرمت مناسب نداشت).")
 
-            # --- بخش دوم: اگر با روش اول پیدا نشد، از بک‌آپ استفاده کن ---
-            logger.info(f"در حال امتحان روش‌های عمومی‌تر برای پیدا کردن لینک دانلود...")
-            fallback_selectors = [
-                "a[href$='.mp4']",       # لینک‌هایی که با mp4 تمام میشن
-                "video[src$='.mp4']",     # تگ video که src آن mp4 باشد
-                "a[download]",            # تگ a که صفت download دارد
-                ".download-btn a"         # لینک داخل کلاسی که download-btn دارد
-            ]
-            for selector in fallback_selectors:
-                elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                for el in elements:
-                    href = el.get_attribute("href")
-                    if href and href.endswith('.mp4'):
-                        final_url = href
-                        logger.info(f"✅ لینک دانلود ویدیو از سلکتور fallback '{selector}' پیدا شد: {final_url}")
+            # --- بخش دوم: تلاش برای پیدا کردن لینک دانلود از JSON-LD (contentUrl) ---
+            logger.info("در حال تلاش برای پیدا کردن لینک دانلود از JSON-LD (contentUrl)...")
+            try:
+                # پیدا کردن اسکریپت JSON-LD
+                script_tag = self.driver.find_element(By.XPATH, "//script[@type='application/ld+json']")
+                script_content = script_tag.get_attribute("innerHTML")
+                
+                import json
+                data = json.loads(script_content)
+                
+                # بررسی ساختار VideoObject و contentUrl
+                if data.get("@type") == "VideoObject" and "contentUrl" in data:
+                    json_ld_url = data["contentUrl"]
+                    if json_ld_url and json_ld_url.endswith('.mp4') and "mp4-cdn" in json_ld_url:
+                        final_url = json_ld_url
+                        logger.info(f"✅ لینک دانلود ویدیو از JSON-LD (contentUrl) پیدا شد: {final_url}")
                         return final_url
+                else:
+                    logger.warning("ساختار JSON-LD مورد انتظار نبود یا contentUrl پیدا نشد.")
+
+            except NoSuchElementException:
+                logger.warning("اسکریپت JSON-LD در صفحه پیدا نشد.")
+            except json.JSONDecodeError:
+                logger.warning("خطا در تجزیه محتوای JSON-LD.")
+            except Exception as e:
+                logger.warning(f"خطا در پردازش JSON-LD: {e}")
+
+
+            # --- بخش سوم: اگر با روش‌های بالا پیدا نشد، از بک‌آپ عمومی استفاده کن ---
+            if not final_url:
+                logger.info("در حال امتحان روش‌های عمومی‌تر برای پیدا کردن لینک دانلود...")
+                fallback_selectors = [
+                    "a[href$='.mp4']",       
+                    "video[src$='.mp4']",     
+                    "a[download]",            
+                    ".download-btn a"        
+                ]
+                for selector in fallback_selectors:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for el in elements:
+                        href = el.get_attribute("href")
+                        if href and href.endswith('.mp4') and "mp4-cdn" in href:
+                            final_url = href
+                            logger.info(f"✅ لینک دانلود ویدیو از سلکتور fallback '{selector}' پیدا شد: {final_url}")
+                            return final_url
 
             if not final_url:
                 logger.warning(f"⚠️ هیچ لینک ویدیوی نهایی برای {video_page_url} با هیچ روشی پیدا نشد.")
@@ -180,10 +209,9 @@ class VideoScraper:
             if final_url:
                 all_final_video_urls.append(final_url)
             processed_count += 1
-            # اینجا شرط break رو برداشتم که اگه لینک دانلود پیدا شد، ولی از 10 تا کمتر بود، همه رو پردازش کنه
-            # if processed_count >= max_videos_to_process:
-            #     logger.info(f"به حداکثر تعداد ویدیو ({max_videos_to_process}) پردازش شده رسید.")
-            #     break
+            # این شرط برای اینه که اگه کمتر از ۱۰ تا لینک پیدا کردیم، تا همون تعداد رو پردازش کنیم
+            if processed_count >= len(links_to_process): 
+                break
         
         if not all_final_video_urls:
             logger.warning("⚠️ هیچ لینک ویدیوی نهایی استخراج نشد.")
@@ -197,4 +225,3 @@ class VideoScraper:
         if self.driver:
             self.driver.quit()
             logger.info("🚪 درایور بسته شد")
-

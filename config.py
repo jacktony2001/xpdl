@@ -1,17 +1,19 @@
 import os
+from dotenv import load_dotenv
 
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN')
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', 'YOUR_CHAT_ID')
-BASE_URL = "https://www.xnxx.com/search/sexy"
+# بارگذاری متغیرهای محیطی از فایل .env
+load_dotenv()
 
-SELECTORS = {
-    'video_links': 'div.thumb a, a[href*="/video-"]',
-    'title': 'h1.page-title, h1.title, h1',
-    'video': 'video',
-    'duration': 'span.duration, .video-duration',
-}
+# توکن ربات تلگرام (از محیط یا secrets)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+WEBSITE_URL = os.getenv("WEBSITE_URL", "https://example.com")
 
-EXCLUDE_PATTERNS = ['ad', 'sponsored', 'promo', 'advertisement']
-MAX_FILE_SIZE_MB = 50
-MAX_VIDEOS_PER_RUN = 5
-HEADLESS = True
+# تنظیمات کروم (برای محیط گیتهاب)
+CHROME_OPTIONS = [
+    "--headless",  # بدون نمایش مرورگر
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--window-size=1920,1080"
+]

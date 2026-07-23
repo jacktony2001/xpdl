@@ -178,7 +178,7 @@ class VideoScraper:
             return None
 
     def download_and_compress_video(self, video_url):
-        """دانلود و فشرده‌سازی ویدیو با ffmpeg"""
+        """دانلود و فشرده‌سازی ویدیو با ffmpeg - نسخه نهایی با چند مرحله"""
         try:
             if not self.compression_config.get("enabled", True):
                 logger.info("ℹ️ فشرده‌سازی غیرفعال است")
@@ -196,18 +196,21 @@ class VideoScraper:
             original_size = os.path.getsize(temp_file) / (1024 * 1024)
             logger.info(f"📊 حجم اصلی: {original_size:.2f} MB")
 
-            max_size = self.compression_config.get("max_size_mb", 45)
+            max_size = self.compression_config.get("max_size_mb", 48)
+            
+            # اگه حجم کمتر از حد مجازه، بدون فشرده‌سازی برگردون
             if original_size <= max_size:
                 logger.info(f"ℹ️ حجم ویدیو کمتر از {max_size} MB است، نیازی به فشرده‌سازی نیست")
                 os.remove(temp_file)
                 return video_url
 
+            # فشرده‌سازی مرحله اول
             logger.info("🔄 در حال فشرده‌سازی ویدیو...")
             output_path = "compressed_video.mp4"
             
-            scale = self.compression_config.get("scale", "640:360")
-            crf = self.compression_config.get("crf", 32)
-            audio_bitrate = self.compression_config.get("audio_bitrate", "64k")
+            scale = self.compression_config.get("scale", "480:320")
+            crf = self.compression_config.get("crf", 35)
+            audio_bitrate = self.compression_config.get("audio_bitrate", "48k")
             preset = self.compression_config.get("preset", "fast")
             
             cmd = [
@@ -234,21 +237,41 @@ class VideoScraper:
             os.remove(temp_file)
             
             final_size = os.path.getsize(output_path) / (1024 * 1024)
-            logger.info(f"✅ فشرده‌سازی کامل شد! حجم نهایی: {final_size:.2f} MB")
+            logger.info(f"✅ فشرده‌سازی مرحله اول: {final_size:.2f} MB")
             
-            if final_size > max_size:
-                logger.info("🔄 حجم بازم بالاست، فشرده‌سازی مجدد با کیفیت پایین‌تر...")
-                cmd[cmd.index("-crf") + 1] = str(crf + 5)
-                cmd[cmd.index("-vf") + 1] = "scale=480:320"
+            # اگه حجم بازم بالاست، با کیفیت پایین‌تر دوباره امتحان کن
+            retry_count = 0
+            while final_size > max_size and retry_count < 4:
+                retry_count += 1
+                logger.info(f"🔄 تلاش {retry_count}: فشرده‌سازی مجدد با کیفیت پایین‌تر...")
+                
+                # کاهش بیشتر کیفیت
+                new_crf = crf + (retry_count * 4)
+                new_width = max(320, 480 - (retry_count * 60))
+                new_height = max(240, 320 - (retry_count * 40))
+                
+                cmd[cmd.index("-crf") + 1] = str(new_crf)
+                cmd[cmd.index("-vf") + 1] = f"scale={new_width}:{new_height}"
+                
+                # کاهش بیت‌ریت صدا در تلاش‌های بعدی
+                if retry_count >= 2:
+                    new_audio_bitrate = f"{max(24, 48 - (retry_count * 8))}k"
+                    cmd[cmd.index("-b:a") + 1] = new_audio_bitrate
+                
                 subprocess.run(cmd, capture_output=True, text=True)
                 final_size = os.path.getsize(output_path) / (1024 * 1024)
-                logger.info(f"✅ حجم نهایی بعد از فشرده‌سازی مجدد: {final_size:.2f} MB")
+                logger.info(f"✅ حجم نهایی: {final_size:.2f} MB")
+                
+                if final_size <= max_size:
+                    break
 
+            # اگه بازم بالاست، به عنوان لینک برگردون
             if final_size > max_size:
                 logger.warning(f"⚠️ حجم بازم بالاست ({final_size:.2f} MB)، ارسال به صورت لینک")
                 os.remove(output_path)
                 return video_url
 
+            logger.info(f"✅ فشرده‌سازی موفق! حجم نهایی: {final_size:.2f} MB")
             return output_path
 
         except Exception as e:
@@ -266,7 +289,7 @@ class VideoScraper:
             logger.warning("هیچ لینک ویدیویی پیدا نشد.")
             return []
 
-        max_videos_to_process = 3  # برای تست کمترش کن
+        max_videos_to_process = 3
         links_to_process = homepage_links[:max_videos_to_process]
         logger.info(f"پردازش {len(links_to_process)} ویدیو...")
 

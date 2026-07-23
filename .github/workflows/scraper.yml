@@ -2,9 +2,8 @@ name: Content Scraper Bot
 
 on:
   schedule:
-    # اجرا هر ۶ ساعت
     - cron: '0 */6 * * *'
-  workflow_dispatch:  # اجرای دستی
+  workflow_dispatch:
 
 jobs:
   scrape:
@@ -21,48 +20,42 @@ jobs:
     - name: Install Chrome and dependencies
       run: |
         wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
+        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb stable main" >> /etc/apt/sources.list.d/google.list'
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable xvfb
-        # نصب وابستگی‌های Python
         pip install -r requirements.txt
     
-    - name: Download previous database artifact
+    - name: Download previous database
       uses: dawidd6/action-download-artifact@v3
       with:
         name: scraper-database
         path: .
         if_no_artifact_found: warn
     
-    - name: Check database exists
+    - name: Check files
       run: |
-        if [ -f "sent_content.db" ]; then
-          echo "Database restored successfully"
-          ls -lh sent_content.db
-        else
-          echo "No previous database found, will create new one"
-        fi
+        echo "=== Files in repo ==="
+        ls -la
+        echo "=== Python files ==="
+        find . -name "*.py" -type f
     
     - name: Run scraper
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        DISPLAY: :99  # برای xvfb
+        DISPLAY: :99
       run: |
-        # اجرای X virtual framebuffer برای Chrome
         Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
         sleep 3
         python main.py
     
-    - name: Upload database artifact
+    - name: Upload database
       uses: actions/upload-artifact@v4
       with:
         name: scraper-database
         path: sent_content.db
         retention-days: 90
-        if-no-files-found: warn
     
     - name: Cleanup
       if: always()
-      run: |
-        pkill -f Xvfb || true
+      run: pkill -f Xvfb || true

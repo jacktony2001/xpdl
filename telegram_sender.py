@@ -1,4 +1,8 @@
 import requests
+import logging
+import os
+
+logger = logging.getLogger(__name__)
 
 class TelegramSender:
     def __init__(self, bot_token, chat_id):
@@ -6,69 +10,77 @@ class TelegramSender:
         self.chat_id = chat_id
         self.base_url = f"https://api.telegram.org/bot{bot_token}"
     
-    def send_video(self, video_url, caption="", thumb=None):
-        url = f"{self.base_url}/sendVideo"
-        payload = {
-            'chat_id': self.chat_id,
-            'video': video_url,
-            'caption': caption[:1024],
-            'parse_mode': 'HTML',
-            'supports_streaming': True
-        }
-        if thumb:
-            payload['thumbnail'] = thumb
-        
+    def send_video_file(self, file_path, caption=""):
+        """ارسال فایل ویدیویی محلی (فشرده‌شده)"""
         try:
-            r = requests.post(url, json=payload, timeout=60)
-            result = r.json()
-            if result.get('ok'):
-                return result
-            if 'too big' in str(result).lower():
-                return self.send_link(video_url, caption)
-            return result
+            # اگه لینک هست (فشرده‌سازی نشده)، به صورت لینک بفرست
+            if file_path.startswith(('http://', 'https://')):
+                return self.send_link(file_path, caption)
+            
+            # اگه فایل محلی هست و وجود داره
+            if not os.path.exists(file_path):
+                logger.error(f"❌ فایل وجود ندارد: {file_path}")
+                return None
+            
+            file_size = os.path.getsize(file_path) / (1024 * 1024)
+            if file_size > 50:
+                logger.warning(f"⚠️ حجم فایل {file_size:.2f} MB بیشتر از 50 مگ است، ارسال به صورت لینک")
+                return self.send_link(file_path, caption)
+            
+            url = f"{self.base_url}/sendVideo"
+            with open(file_path, "rb") as f:
+                files = {"video": f}
+                data = {"chat_id": self.chat_id, "caption": caption[:1024], "supports_streaming": True}
+                response = requests.post(url, data=data, files=files, timeout=300)
+                result = response.json()
+                
+                if result.get('ok'):
+                    logger.info(f"✅ ویدیو ارسال شد: {file_path}")
+                    return result
+                else:
+                    logger.error(f"❌ خطا: {result}")
+                    return None
+                    
         except Exception as e:
-            print(f"Send error: {e}")
-            return self.send_link(video_url, caption)
+            logger.error(f"❌ خطا: {e}")
+            return None
     
-    def send_link(self, video_url, caption):
-        message = f"{caption}\n\n🎥 <b>Link:</b>\n{video_url}"
-        url = f"{self.base_url}/sendMessage"
-        payload = {
-            'chat_id': self.chat_id,
-            'text': message,
-            'parse_mode': 'HTML',
-            'disable_web_page_preview': False
-        }
-        return requests.post(url, json=payload, timeout=30).json()
+    def send_link(self, video_url, caption=""):
+        """ارسال لینک ویدیو"""
+        try:
+            message = f"🎬 **ویدیو**\n\n{video_url}"
+            if caption:
+                message = f"{caption}\n\n{video_url}"
+            
+            url = f"{self.base_url}/sendMessage"
+            payload = {
+                'chat_id': self.chat_id,
+                'text': message,
+                'parse_mode': 'Markdown',
+                'disable_web_page_preview': False
+            }
+            
+            response = requests.post(url, json=payload, timeout=30)
+            result = response.json()
+            
+            if result.get('ok'):
+                logger.info(f"✅ لینک ویدیو ارسال شد")
+                return result
+            else:
+                logger.error(f"❌ خطا: {result}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ خطا: {e}")
+            return None
     
     def send_content(self, data):
-        title = data.get('title', 'No title')
+        title = data.get('title', 'بدون عنوان')
         video_url = data.get('video_src', '')
-        thumb = data.get('thumbnail', '')
-        duration = data.get('duration', '')
         page_url = data.get('url', '')
-        size = data.get('file_size', 0)
         
-        caption = f"🎬 <b>{title}</b>"
-        if duration:
-            caption += f"\n⏱ {duration}"
-        if size:
-            caption += f"\n📦 {size:.1f} MB"
-        caption += f"\n\n🔗 <a href='{page_url}'>View on site</a>"
+        caption = f"🎬 **{title}**"
+        if page_url:
+            caption += f"\n📄 [مشاهده در سایت]({page_url})"
         
-        if video_url and 0 < size <= 50:
-            print(f"Sending video: {title[:50]}...")
-            return self.send_video(video_url, caption, thumb)
-        else:
-            print(f"Sending link (size: {size:.1f}MB): {title[:50]}...")
-            if thumb:
-                # Send photo with link
-                photo_url = f"{self.base_url}/sendPhoto"
-                requests.post(photo_url, json={
-                    'chat_id': self.chat_id,
-                    'photo': thumb,
-                    'caption': caption,
-                    'parse_mode': 'HTML'
-                }, timeout=30)
-                return {'ok': True}
-            return self.send_link(page_url, caption)
+        return self.send_link(video_url, caption)

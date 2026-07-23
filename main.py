@@ -1,4 +1,5 @@
 import logging
+import os
 from scraper import VideoScraper
 from telegram_sender import TelegramSender
 from database import Database
@@ -11,44 +12,48 @@ def main():
     logger.info("🚀 شروع فرآیند اسکرپ و ارسال ویدیو")
     
     if not BOT_TOKEN or not CHAT_ID:
-        logger.error("❌ توکن یا چت‌آیدی تنظیم نشده! لطفاً Secrets رو چک کن.")
-        logger.error(f"BOT_TOKEN: {'OK' if BOT_TOKEN else 'MISSING'}")
-        logger.error(f"CHAT_ID: {'OK' if CHAT_ID else 'MISSING'}")
+        logger.error("❌ توکن یا چت‌آیدی تنظیم نشده!")
         return
     
     try:
         scraper = VideoScraper()
-        video_links = scraper.scrape()
+        video_items = scraper.scrape()  # لیست مسیر فایل‌ها یا لینک‌ها
         
-        if not video_links:
-            logger.warning("⚠️ هیچ ویدیویی برای ارسال وجود ندارد.")
+        if not video_items:
+            logger.warning("⚠️ هیچ ویدیویی پیدا نشد.")
             return
         
         db = Database()
-        
-        # فیلتر کردن لینک‌های جدید (ارسال نشده)
-        new_videos = []
-        for link in video_links:
-            if not db.is_sent(link):  # این متد توی دیتابیس هست
-                new_videos.append(link)
-        
-        if not new_videos:
-            logger.info("ℹ️ همه ویدیوها قبلاً ارسال شده‌اند.")
-            return
-        
         sender = TelegramSender(BOT_TOKEN, CHAT_ID)
-        for video in new_videos:
-            success = sender.send_video(video, f"🎬 ویدیو جدید:\n{video}")
-            if success and success.get('ok'):
-                db.mark_as_sent(video)
-                logger.info(f"✅ ویدیو ارسال شد: {video}")
-            else:
-                logger.error(f"❌ ارسال ویدیو ناموفق: {video}")
         
-        logger.info("🏁 فرآیند با موفقیت به پایان رسید.")
+        for item in video_items:
+            # چک کن قبلاً فرستاده شده یا نه
+            if db.is_sent(item):
+                logger.info(f"⏭️ ویدیو قبلاً ارسال شده: {item[:50]}...")
+                continue
+            
+            # ارسال
+            if item.startswith(('http://', 'https://')):
+                # لینک
+                result = sender.send_link(item, "🎬 ویدیو جدید")
+            else:
+                # فایل محلی
+                result = sender.send_video_file(item, "🎬 ویدیو (فشرده‌شده)")
+                # پاک کردن فایل بعد از ارسال
+                if os.path.exists(item):
+                    os.remove(item)
+                    logger.info(f"🗑️ فایل پاک شد: {item}")
+            
+            if result and result.get('ok'):
+                db.mark_as_sent(item)
+                logger.info(f"✅ ارسال شد: {item[:50]}...")
+            else:
+                logger.error(f"❌ ارسال ناموفق: {item[:50]}...")
+        
+        logger.info("🏁 فرآیند به پایان رسید.")
         
     except Exception as e:
-        logger.error(f"💥 خطای کلی در برنامه: {e}")
+        logger.error(f"💥 خطا: {e}")
 
 if __name__ == "__main__":
     main()

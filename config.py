@@ -28,13 +28,12 @@ SCRAPER_CONFIG = {
         "banner",
         "popup"
     ],
-    # تنظیمات فشرده‌سازی - نسخه نهایی
     "compression": {
         "enabled": True,
-        "max_size_mb": 48,           # حداکثر حجم نهایی (کمی کمتر از 50)
-        "scale": "480:320",          # رزولوشن پایین (برای فشرده‌سازی بیشتر)
-        "crf": 35,                   # کیفیت پایین‌تر (عدد بیشتر = کیفیت کمتر)
-        "audio_bitrate": "48k",      # بیت‌ریت پایین‌تر
+        "max_size_mb": 48,
+        "scale": "640:360",
+        "crf": 28,
+        "audio_bitrate": "96k",
         "preset": "fast"
     }
 }

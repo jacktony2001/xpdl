@@ -46,17 +46,20 @@ class TelegramSender:
             return None
     
     def send_link(self, video_url, caption=""):
-        """ارسال لینک ویدیو"""
+        """ارسال لینک ویدیو (بدون Markdown)"""
         try:
-            message = f"🎬 **ویدیو**\n\n{video_url}"
-            if caption:
-                message = f"{caption}\n\n{video_url}"
+            # ساخت پیام ساده بدون Markdown
+            message = f"🎬 ویدیو جدید\n\n{video_url}"
+            if caption and caption != "🎬 ویدیو جدید":
+                # حذف کاراکترهای خاص از کپشن
+                clean_caption = caption.replace('_', ' ').replace('*', '').replace('`', '').replace('[', '').replace(']', '')
+                message = f"{clean_caption}\n\n{video_url}"
             
             url = f"{self.base_url}/sendMessage"
             payload = {
                 'chat_id': self.chat_id,
                 'text': message,
-                'parse_mode': 'Markdown',
+                'parse_mode': None,  # غیرفعال کردن Markdown
                 'disable_web_page_preview': False
             }
             
@@ -79,8 +82,8 @@ class TelegramSender:
         video_url = data.get('video_src', '')
         page_url = data.get('url', '')
         
-        caption = f"🎬 **{title}**"
+        caption = f"🎬 {title}"
         if page_url:
-            caption += f"\n📄 [مشاهده در سایت]({page_url})"
+            caption += f"\n📄 مشاهده در سایت: {page_url}"
         
         return self.send_link(video_url, caption)

@@ -3,29 +3,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ==============================================
-# متغیرهای اصلی (از Secrets گیت‌هاب می‌آیند)
-# ==============================================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 WEBSITE_URL = os.getenv("WEBSITE_URL", "https://example.com")
 
-# ==============================================
-# تنظیمات اسکرپر
-# ==============================================
 SCRAPER_CONFIG = {
-    # زمان انتظار برای بارگذاری صفحات (ثانیه)
     "wait_time": 10,
-    
-    # تعداد دفعات اسکرول برای بارگذاری بیشتر (صفحه اصلی)
-    # اگه سایتت بی‌نهایت اسکرول داره، بذار 3 یا 5
-    # اگه صفحه‌بندی داره، بذار 0
     "scroll_pages": 2,
-    
-    # سلکتورهای دانلود (برای صفحه اختصاصی ویدیو)
-    # اگه سلکتور جدیدی پیدا کردی، اینجا اضافه کن
     "video_selectors": [
-        "p.text-center.download-ready a",  # سلکتور اصلی سایت شما
+        "p.text-center.download-ready a",
         "a[href$='.mp4']",
         "a[href$='.webm']",
         ".download-btn",
@@ -35,8 +21,6 @@ SCRAPER_CONFIG = {
         "[data-src*='.mp4']",
         "a[href*='mp4-cdn']"
     ],
-    
-    # الگوهای تبلیغاتی برای حذف
     "exclude_patterns": [
         "ads",
         "advertisement",
@@ -46,11 +30,8 @@ SCRAPER_CONFIG = {
     ]
 }
 
-# ==============================================
-# تنظیمات کروم (برای محیط گیت‌هاب)
-# ==============================================
 CHROME_OPTIONS = [
-    "--headless",  # بدون نمایش مرورگر (اجباری برای گیت‌هاب)
+    "--headless",
     "--no-sandbox",
     "--disable-dev-shm-usage",
     "--disable-gpu",

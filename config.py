@@ -19,14 +19,12 @@ CHROME_OPTIONS = [
 # --- تنظیمات اسکرپر ---
 SCRAPER_CONFIG = {
     "wait_time_homepage": 7,           
-    "wait_time_video_page": 15,          
+    "wait_time_video_page": 15,          # زمان انتظار برای صفحه ویدیو افزایش یافته است
     "wait_time_scroll": 3,             
-    "extra_wait_for_download_content": 5, 
+    "extra_wait_for_download_content": 5, # انتظار اضافی برای محتوای دانلود
     "max_videos_per_run": 10,
     "scroll_pages": 2,
 }
 
 # --- آدرس اصلی سایت ---
 WEBSITE_URL = "https://www.xnxx.com" # آدرس سایت خود را اینجا قرار دهید
-
-# ... ممکنه تنظیمات دیگه ای هم داشته باشید ... 

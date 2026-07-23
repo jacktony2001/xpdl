@@ -1,15 +1,17 @@
 import time
 import logging
 import json
+import subprocess
+import requests
+import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementClickInterceptedException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 import chromedriver_autoinstaller
 
 from config import WEBSITE_URL, CHROME_OPTIONS, SCRAPER_CONFIG
 
-# تنظیم لاگ
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -17,9 +19,9 @@ class VideoScraper:
     def __init__(self):
         self.driver = None
         self.setup_driver()
+        self.compression_config = SCRAPER_CONFIG.get("compression", {})
 
     def setup_driver(self):
-        """راه‌اندازی درایور کروم"""
         try:
             chromedriver_autoinstaller.install()
             options = Options()
@@ -32,7 +34,6 @@ class VideoScraper:
             raise
 
     def _find_elements(self, selectors):
-        """پیدا کردن المان‌ها با لیست سلکتورها"""
         for selector in selectors:
             try:
                 elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
@@ -43,7 +44,6 @@ class VideoScraper:
         return []
 
     def _scroll_to_load_more(self):
-        """اسکرول صفحه برای بارگذاری بیشتر"""
         scroll_times = SCRAPER_CONFIG.get("scroll_pages", 0)
         if scroll_times > 0:
             logger.info(f"📜 اسکرول {scroll_times} بار برای بارگذاری بیشتر...")
@@ -57,7 +57,6 @@ class VideoScraper:
                 last_height = new_height
 
     def get_video_page_links_from_homepage(self):
-        """گرفتن لینک صفحه ویدیوها از صفحه اصلی"""
         video_page_links = []
         try:
             logger.info(f"🔄 در حال اتصال به صفحه اصلی: {WEBSITE_URL}")
@@ -66,7 +65,6 @@ class VideoScraper:
             
             self._scroll_to_load_more()
 
-            # سلکتورهای صفحه اصلی
             homepage_selectors = [
                 "a.video-link",
                 "a[href*='/video-']",
@@ -86,9 +84,6 @@ class VideoScraper:
 
             if not video_page_links:
                 logger.warning("⚠️ هیچ لینک ویدیویی در صفحه اصلی پیدا نشد!")
-                all_links = self.driver.find_elements(By.TAG_NAME, "a")
-                sample = [a.get_attribute("href") for a in all_links[:5] if a.get_attribute("href")]
-                logger.info(f"📋 نمونه لینک‌های صفحه: {sample}")
             else:
                 logger.info(f"✅ {len(video_page_links)} لینک صفحه ویدیو پیدا شد.")
 
@@ -99,7 +94,6 @@ class VideoScraper:
             return []
 
     def get_final_video_url(self, video_page_url):
-        """گرفتن لینک دانلود با اولویت لینک‌های پایدار (bkcdn)"""
         final_url = None
         all_mp4_links = []
         
@@ -108,10 +102,6 @@ class VideoScraper:
             self.driver.get(video_page_url)
             time.sleep(SCRAPER_CONFIG.get("wait_time", 8))
 
-            # =======================================================
-            # جمع‌آوری همه لینک‌های mp4 از روش‌های مختلف
-            # =======================================================
-
             # ۱. لینک‌های از تگ video
             try:
                 video_tags = self.driver.find_elements(By.TAG_NAME, "video")
@@ -119,7 +109,6 @@ class VideoScraper:
                     src = v.get_attribute("src")
                     if src and ".mp4" in src:
                         all_mp4_links.append(src)
-                        logger.debug(f"لینک از تگ video: {src}")
             except Exception:
                 pass
 
@@ -132,14 +121,12 @@ class VideoScraper:
                     for item in data:
                         if item.get("@type") == "VideoObject" and "contentUrl" in item:
                             all_mp4_links.append(item["contentUrl"])
-                            logger.debug(f"لینک از JSON-LD (list): {item['contentUrl']}")
                 elif data.get("@type") == "VideoObject" and "contentUrl" in data:
                     all_mp4_links.append(data["contentUrl"])
-                    logger.debug(f"لینک از JSON-LD: {data['contentUrl']}")
             except Exception:
                 pass
 
-            # ۳. لینک‌های از سلکتور مستقیم (p.text-center.download-ready a)
+            # ۳. لینک‌های از سلکتور مستقیم
             try:
                 download_paragraph = self.driver.find_element(By.CSS_SELECTOR, "p.text-center.download-ready")
                 links = download_paragraph.find_elements(By.TAG_NAME, "a")
@@ -147,7 +134,6 @@ class VideoScraper:
                     href = link.get_attribute("href")
                     if href and ".mp4" in href:
                         all_mp4_links.append(href)
-                        logger.debug(f"لینک از سلکتور مستقیم: {href}")
             except Exception:
                 pass
 
@@ -158,69 +144,142 @@ class VideoScraper:
                     href = link.get_attribute("href")
                     if href:
                         all_mp4_links.append(href)
-                        logger.debug(f"لینک از a[href$='.mp4']: {href}")
             except Exception:
                 pass
 
-            # =======================================================
-            # اولویت‌بندی لینک‌ها
-            # =======================================================
-
-            # حذف موارد تکراری
             all_mp4_links = list(set(all_mp4_links))
             logger.info(f"🔍 {len(all_mp4_links)} لینک mp4 پیدا شد")
 
-            # اولویت ۱: لینک‌های bkcdn (پایدارترین)
+            # اولویت ۱: bkcdn (پایدار)
             for link in all_mp4_links:
                 if "bkcdn" in link:
                     final_url = link
-                    logger.info(f"✅ لینک پایدار (bkcdn) انتخاب شد: {final_url}")
+                    logger.info(f"✅ لینک پایدار (bkcdn) انتخاب شد")
                     return final_url
 
-            # اولویت ۲: لینک‌های mp4-cdn یا gcore
+            # اولویت ۲: mp4-cdn یا gcore
             for link in all_mp4_links:
                 if "mp4-cdn" in link or "gcore" in link:
                     final_url = link
-                    logger.info(f"✅ لینک (mp4-cdn/gcore) انتخاب شد: {final_url}")
+                    logger.info(f"✅ لینک (mp4-cdn) انتخاب شد")
                     return final_url
 
-            # اولویت ۳: هر لینک mp4 دیگه‌ای
+            # اولویت ۳: هر لینک دیگه
             if all_mp4_links:
                 final_url = all_mp4_links[0]
-                logger.info(f"✅ لینک (fallback) انتخاب شد: {final_url}")
+                logger.info(f"✅ لینک (fallback) انتخاب شد")
                 return final_url
 
-            logger.warning(f"⚠️ هیچ لینک دانلودی برای {video_page_url} پیدا نشد.")
+            logger.warning(f"⚠️ هیچ لینک دانلودی پیدا نشد.")
             return None
 
         except Exception as e:
-            logger.error(f"❌ خطا در پردازش {video_page_url}: {e}")
+            logger.error(f"❌ خطا: {e}")
             return None
 
+    def download_and_compress_video(self, video_url):
+        """دانلود و فشرده‌سازی ویدیو با ffmpeg"""
+        try:
+            if not self.compression_config.get("enabled", True):
+                logger.info("ℹ️ فشرده‌سازی غیرفعال است")
+                return video_url
+
+            logger.info(f"📥 دانلود ویدیو...")
+            response = requests.get(video_url, stream=True, timeout=120)
+            temp_file = "temp_video.mp4"
+            
+            with open(temp_file, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            original_size = os.path.getsize(temp_file) / (1024 * 1024)
+            logger.info(f"📊 حجم اصلی: {original_size:.2f} MB")
+
+            # اگر حجم کمتر از حد مجازه، بدون فشرده‌سازی برگردون
+            max_size = self.compression_config.get("max_size_mb", 45)
+            if original_size <= max_size:
+                logger.info(f"ℹ️ حجم ویدیو کمتر از {max_size} MB است، نیازی به فشرده‌سازی نیست")
+                return video_url
+
+            # فشرده‌سازی
+            logger.info("🔄 در حال فشرده‌سازی ویدیو...")
+            output_path = "compressed_video.mp4"
+            
+            scale = self.compression_config.get("scale", "854:480")
+            crf = self.compression_config.get("crf", 28)
+            audio_bitrate = self.compression_config.get("audio_bitrate", "96k")
+            
+            cmd = [
+                "ffmpeg",
+                "-i", temp_file,
+                "-vf", f"scale={scale}",
+                "-c:v", "libx264",
+                "-crf", str(crf),
+                "-preset", "fast",
+                "-c:a", "aac",
+                "-b:a", audio_bitrate,
+                "-movflags", "+faststart",
+                "-y",
+                output_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                logger.error(f"❌ خطا در ffmpeg: {result.stderr}")
+                return video_url
+
+            # پاک کردن فایل موقت
+            os.remove(temp_file)
+            
+            final_size = os.path.getsize(output_path) / (1024 * 1024)
+            logger.info(f"✅ فشرده‌سازی کامل شد! حجم نهایی: {final_size:.2f} MB")
+            
+            # اگه حجم بازم بالاست، دوباره با کیفیت پایین‌تر فشرده کن
+            if final_size > max_size:
+                logger.info("🔄 حجم بازم بالاست، فشرده‌سازی مجدد با کیفیت پایین‌تر...")
+                cmd[cmd.index("-crf") + 1] = str(crf + 5)
+                subprocess.run(cmd, capture_output=True, text=True)
+                final_size = os.path.getsize(output_path) / (1024 * 1024)
+                logger.info(f"✅ حجم نهایی بعد از فشرده‌سازی مجدد: {final_size:.2f} MB")
+
+            return output_path
+
+        except Exception as e:
+            logger.error(f"❌ خطا در فشرده‌سازی: {e}")
+            return video_url
+
     def scrape(self):
-        """متد اصلی اسکرپ"""
-        all_final_video_urls = []
+        """متد اصلی اسکرپ با فشرده‌سازی"""
+        all_video_paths = []
         homepage_links = self.get_video_page_links_from_homepage()
 
         if not homepage_links:
             logger.warning("هیچ لینک ویدیویی پیدا نشد.")
             return []
 
-        max_videos_to_process = 10
+        max_videos_to_process = 5
         links_to_process = homepage_links[:max_videos_to_process]
         logger.info(f"پردازش {len(links_to_process)} ویدیو...")
 
         for link in links_to_process:
-            final_url = self.get_final_video_url(link)
-            if final_url:
-                all_final_video_urls.append(final_url)
+            video_url = self.get_final_video_url(link)
+            if video_url:
+                # دانلود و فشرده‌سازی
+                result = self.download_and_compress_video(video_url)
+                if result and result.endswith('.mp4') and os.path.exists(result):
+                    all_video_paths.append(result)
+                else:
+                    # اگه فشرده‌سازی نشد، خود لینک رو برگردون
+                    all_video_paths.append(video_url)
 
-        if not all_final_video_urls:
-            logger.warning("⚠️ هیچ لینک نهایی استخراج نشد.")
+        if not all_video_paths:
+            logger.warning("⚠️ هیچ ویدیویی استخراج نشد.")
         else:
-            logger.info(f"✅ {len(all_final_video_urls)} لینک نهایی استخراج شد.")
+            logger.info(f"✅ {len(all_video_paths)} ویدیو آماده ارسال شد.")
 
-        return list(set(all_final_video_urls))
+        return all_video_paths
 
     def __del__(self):
         if self.driver:

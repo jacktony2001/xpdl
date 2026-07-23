@@ -13,11 +13,9 @@ class TelegramSender:
     def send_video_file(self, file_path, caption=""):
         """ارسال فایل ویدیویی محلی (فشرده‌شده)"""
         try:
-            # اگه لینک هست (فشرده‌سازی نشده)، به صورت لینک بفرست
             if file_path.startswith(('http://', 'https://')):
                 return self.send_link(file_path, caption)
             
-            # اگه فایل محلی هست و وجود داره
             if not os.path.exists(file_path):
                 logger.error(f"❌ فایل وجود ندارد: {file_path}")
                 return None
@@ -46,12 +44,10 @@ class TelegramSender:
             return None
     
     def send_link(self, video_url, caption=""):
-        """ارسال لینک ویدیو (بدون Markdown)"""
+        """ارسال لینک ویدیو (بدون parse_mode)"""
         try:
-            # ساخت پیام ساده بدون Markdown
             message = f"🎬 ویدیو جدید\n\n{video_url}"
             if caption and caption != "🎬 ویدیو جدید":
-                # حذف کاراکترهای خاص از کپشن
                 clean_caption = caption.replace('_', ' ').replace('*', '').replace('`', '').replace('[', '').replace(']', '')
                 message = f"{clean_caption}\n\n{video_url}"
             
@@ -59,8 +55,8 @@ class TelegramSender:
             payload = {
                 'chat_id': self.chat_id,
                 'text': message,
-                'parse_mode': None,  # غیرفعال کردن Markdown
                 'disable_web_page_preview': False
+                # parse_mode رو کامل حذف کردیم
             }
             
             response = requests.post(url, json=payload, timeout=30)

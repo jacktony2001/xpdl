@@ -13,27 +13,36 @@ class TelegramSender:
     def send_video_file(self, file_path, caption=""):
         """ارسال فایل ویدیویی محلی (فشرده‌شده)"""
         try:
+            # اگه لینک هست، به صورت لینک بفرست
             if file_path.startswith(('http://', 'https://')):
                 return self.send_link(file_path, caption)
             
+            # اگه فایل محلی هست و وجود داره
             if not os.path.exists(file_path):
                 logger.error(f"❌ فایل وجود ندارد: {file_path}")
                 return None
             
             file_size = os.path.getsize(file_path) / (1024 * 1024)
-            if file_size > 50:
-                logger.warning(f"⚠️ حجم فایل {file_size:.2f} MB بیشتر از 50 مگ است، ارسال به صورت لینک")
+            
+            # اگه حجم بیشتر از ۴۹ مگ باشه، به صورت لینک بفرست
+            if file_size > 49:
+                logger.warning(f"⚠️ حجم فایل {file_size:.2f} MB بیشتر از 49 مگ است، ارسال به صورت لینک")
                 return self.send_link(file_path, caption)
             
+            # ارسال فایل ویدیویی
             url = f"{self.base_url}/sendVideo"
             with open(file_path, "rb") as f:
                 files = {"video": f}
-                data = {"chat_id": self.chat_id, "caption": caption[:1024], "supports_streaming": True}
+                data = {
+                    "chat_id": self.chat_id,
+                    "caption": caption[:1024],
+                    "supports_streaming": True
+                }
                 response = requests.post(url, data=data, files=files, timeout=300)
                 result = response.json()
                 
                 if result.get('ok'):
-                    logger.info(f"✅ ویدیو ارسال شد: {file_path}")
+                    logger.info(f"✅ ویدیو ارسال شد")
                     return result
                 else:
                     logger.error(f"❌ خطا: {result}")
@@ -44,10 +53,12 @@ class TelegramSender:
             return None
     
     def send_link(self, video_url, caption=""):
-        """ارسال لینک ویدیو (بدون parse_mode)"""
+        """ارسال لینک ویدیو"""
         try:
+            # ساخت پیام ساده
             message = f"🎬 ویدیو جدید\n\n{video_url}"
             if caption and caption != "🎬 ویدیو جدید":
+                # پاک کردن کاراکترهای خاص
                 clean_caption = caption.replace('_', ' ').replace('*', '').replace('`', '').replace('[', '').replace(']', '')
                 message = f"{clean_caption}\n\n{video_url}"
             
@@ -56,7 +67,6 @@ class TelegramSender:
                 'chat_id': self.chat_id,
                 'text': message,
                 'disable_web_page_preview': False
-                # parse_mode رو کامل حذف کردیم
             }
             
             response = requests.post(url, json=payload, timeout=30)
@@ -72,14 +82,3 @@ class TelegramSender:
         except Exception as e:
             logger.error(f"❌ خطا: {e}")
             return None
-    
-    def send_content(self, data):
-        title = data.get('title', 'بدون عنوان')
-        video_url = data.get('video_src', '')
-        page_url = data.get('url', '')
-        
-        caption = f"🎬 {title}"
-        if page_url:
-            caption += f"\n📄 مشاهده در سایت: {page_url}"
-        
-        return self.send_link(video_url, caption)

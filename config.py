@@ -1,47 +1,32 @@
-import os
-from dotenv import load_dotenv
+# config.py
 
-load_dotenv()
+# آدرس صفحه اصلی سایت
+WEBSITE_URL = "https://www.xnxx.com" # مثال: آدرس سایت شما
 
-# متغیرهای اصلی
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-# WEBSITE_URL رو حتماً چک کن که آدرس درست باشه (مثلا https://www.xnxx.com/search/milf)
-WEBSITE_URL = os.getenv("WEBSITE_URL", "https://example.com") 
+# تنظیمات کروم
+CHROME_OPTIONS = [
+    "--headless",           # اجرای مرورگر در پس‌زمینه (بدون رابط گرافیکی)
+    "--no-sandbox",         # برای اجرا در محیط‌های محدود (مثل Docker یا سرورها)
+    "--disable-dev-shm-usage", # برای جلوگیری از خطای مربوط به حافظه اشتراکی
+    "--disable-gpu",        # غیرفعال کردن شتاب‌دهنده گرافیکی
+    "--window-size=1920,1080", # تنظیم اندازه پنجره مرورگر (برای Headless mode مهم است)
+    "--disable-extensions", # غیرفعال کردن افزونه‌ها
+    "--log-level=3",        # سطح لاگ مرورگر (3 یعنی فقط خطاها)
+    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", # تنظیم User-Agent
+]
 
-# تنظیمات پیشرفته اسکرپر (می‌تونی خودت تغییر بدی)
+# تنظیمات اسکرپر
 SCRAPER_CONFIG = {
-    "wait_time": 5,  # زمان انتظار برای بارگذاری صفحه (ثانیه)
-    "scroll_pages": 2,  # تعداد دفعات اسکرول برای بارگذاری بیشتر (اگه نیاز بود بیشتر کن)
-    # "max_videos_to_process": 10, # این خط الان در scraper.py مستقیم نوشته شده، ولی میتونی اینجا هم بذاری
-    "video_selectors": [
-        # سلکتورهای رایج برای پیدا کردن ویدیو (در صورت نیاز)
-        "video",
-        "a[href$='.mp4']",
-        "a[href$='.webm']",
-        ".video-container video",
-        ".video-wrapper video",
-        "[data-src*='.mp4']",
-        ".download-btn",
-        "a[download]",
-        ".video-link",
-        ".player-container video",
-        ".video-player video",
-        "iframe[src*='youtube']",
-        "iframe[src*='vimeo']",
-        "iframe[src*='dailymotion']",
-    ],
-    "exclude_patterns": [
-        "ads", "advertisement", "sponsor", "banner"  # حذف تبلیغات
-    ]
+    # زمان انتظار بر حسب ثانیه برای بارگذاری کامل صفحات
+    "wait_time_homepage": 7,           # زمان انتظار برای صفحه اصلی
+    "wait_time_video_page": 15,          # زمان انتظار برای صفحه هر ویدیو (افزایش داده شده)
+    "wait_time_scroll": 3,             # زمان انتظار بین هر بار اسکرول صفحه
+    "extra_wait_for_download_content": 5, # انتظار اضافی بعد از لود صفحه ویدیو برای محتوای دانلود
+    
+    # تعداد ویدیوهایی که در هر بار اجرای اسکریپت پردازش می‌شوند
+    "max_videos_per_run": 10,
+    
+    # تعداد دفعات اسکرول صفحه اصلی برای بارگذاری محتوای بیشتر
+    "scroll_pages": 2,
 }
 
-# تنظیمات کروم (برای محیط گیتهاب)
-CHROME_OPTIONS = [
-    "--headless",
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--window-size=1920,1080",
-    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-]

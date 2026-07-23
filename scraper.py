@@ -285,7 +285,7 @@ class VideoScraper:
             logger.warning("هیچ لینک ویدیویی پیدا نشد.")
             return []
 
-        max_videos_to_process = 3
+        max_videos_to_process = 6
         links_to_process = homepage_links[:max_videos_to_process]
         logger.info(f"پردازش {len(links_to_process)} ویدیو...")
 

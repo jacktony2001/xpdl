@@ -6,6 +6,7 @@ import time
 import re
 import requests
 from bs4 import BeautifulSoup
+import chromedriver_autoinstaller
 
 class ContentScraper:
     def __init__(self, headless=True):
@@ -14,6 +15,9 @@ class ContentScraper:
         self.setup_driver()
     
     def setup_driver(self):
+        # نصب خودکار chromedriver مناسب
+        chromedriver_autoinstaller.install()
+        
         options = uc.ChromeOptions()
         if self.headless:
             options.add_argument("--headless=new")
@@ -23,7 +27,7 @@ class ContentScraper:
         options.add_argument("--window-size=1920,1080")
         options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         
-        self.driver = uc.Chrome(options=options, version_main=None)
+        self.driver = uc.Chrome(options=options)
         self.driver.set_page_load_timeout(30)
     
     def get_video_links(self, url, selectors):

@@ -1,5 +1,6 @@
 import time
 import logging
+import json # برای پردازش JSON
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -7,6 +8,7 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException,
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 import chromedriver_autoinstaller
+import os # برای کار با فایل‌ها
 
 from config import WEBSITE_URL, CHROME_OPTIONS, SCRAPER_CONFIG
 
@@ -106,11 +108,22 @@ class VideoScraper:
         try:
             logger.info(f"🔄 در حال ورود به صفحه ویدیو: {video_page_url}")
             self.driver.get(video_page_url)
-            # افزایش زمان انتظار برای بارگذاری صفحه ویدیو
-            time.sleep(SCRAPER_CONFIG.get("wait_time", 7)) # کمی بیشتر منتظر میمونیم
+            time.sleep(SCRAPER_CONFIG.get("wait_time", 8)) # کمی بیشتر منتظر میمونیم
+
+            # --- بخش ذخیره کد صفحه برای دیباگ ---
+            try:
+                page_source = self.driver.page_source
+                # ایجاد نام فایل با حذف کاراکترهای نامعتبر از URL
+                safe_url_part = "".join(c for c in video_page_url if c.isalnum() or c in ('-', '_')).rstrip()
+                filename = f"page_dump_{safe_url_part[:50]}.html" # محدود کردن طول نام فایل
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(page_source)
+                logger.info(f"✅ کد کامل صفحه در فایل '{filename}' ذخیره شد.")
+            except Exception as e:
+                logger.error(f"خطا در ذخیره کد صفحه: {e}")
+            # --- پایان بخش ذخیره کد صفحه ---
 
             # --- بخش اول: تلاش برای پیدا کردن لینک دانلود با سلکتور دقیق شما ---
-            # این سلکتور باید کار کنه چون خودت تأیید کردی
             primary_download_selector = "p.text-center.download-ready a"
             download_elements = self._find_elements([primary_download_selector])
             
@@ -128,14 +141,11 @@ class VideoScraper:
             # --- بخش دوم: تلاش برای پیدا کردن لینک دانلود از JSON-LD (contentUrl) ---
             logger.info("در حال تلاش برای پیدا کردن لینک دانلود از JSON-LD (contentUrl)...")
             try:
-                # پیدا کردن اسکریپت JSON-LD
                 script_tag = self.driver.find_element(By.XPATH, "//script[@type='application/ld+json']")
                 script_content = script_tag.get_attribute("innerHTML")
                 
-                import json
                 data = json.loads(script_content)
                 
-                # بررسی ساختار VideoObject و contentUrl
                 if data.get("@type") == "VideoObject" and "contentUrl" in data:
                     json_ld_url = data["contentUrl"]
                     if json_ld_url and json_ld_url.endswith('.mp4') and "mp4-cdn" in json_ld_url:
@@ -152,7 +162,6 @@ class VideoScraper:
             except Exception as e:
                 logger.warning(f"خطا در پردازش JSON-LD: {e}")
 
-
             # --- بخش سوم: اگر با روش‌های بالا پیدا نشد، از بک‌آپ عمومی استفاده کن ---
             if not final_url:
                 logger.info("در حال امتحان روش‌های عمومی‌تر برای پیدا کردن لینک دانلود...")
@@ -160,7 +169,8 @@ class VideoScraper:
                     "a[href$='.mp4']",       
                     "video[src$='.mp4']",     
                     "a[download]",            
-                    ".download-btn a"        
+                    ".download-btn a",
+                    "a[href*='mp4-cdn']" # اضافه کردن سلکتوری که مستقیم mp4-cdn رو چک کنه
                 ]
                 for selector in fallback_selectors:
                     elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
@@ -173,8 +183,6 @@ class VideoScraper:
 
             if not final_url:
                 logger.warning(f"⚠️ هیچ لینک ویدیوی نهایی برای {video_page_url} با هیچ روشی پیدا نشد.")
-                # نمایش بخشی از کد صفحه برای دیباگ اگه هیچکدوم پیدا نشد
-                # logger.info(f"ساختار صفحه ویدیو: {self.driver.page_source[:500]}...")
 
             return final_url
 
@@ -209,7 +217,6 @@ class VideoScraper:
             if final_url:
                 all_final_video_urls.append(final_url)
             processed_count += 1
-            # این شرط برای اینه که اگه کمتر از ۱۰ تا لینک پیدا کردیم، تا همون تعداد رو پردازش کنیم
             if processed_count >= len(links_to_process): 
                 break
         
@@ -218,7 +225,7 @@ class VideoScraper:
         else:
             logger.info(f"✅ در مجموع {len(all_final_video_urls)} لینک ویدیوی نهایی استخراج شد.")
             
-        return list(set(all_final_video_urls)) # حذف موارد تکراری
+        return list(set(all_final_video_urls))
 
     def __del__(self):
         """پاکسازی درایور هنگام اتمام کار"""

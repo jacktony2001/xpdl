@@ -93,6 +93,39 @@ class VideoScraper:
             logger.error(f"❌ خطا: {e}")
             return []
 
+    def get_video_title(self, video_page_url):
+        """گرفتن عنوان ویدیو از صفحه"""
+        try:
+            # روش ۱: از تگ title
+            title = self.driver.title
+            if title:
+                # پاک کردن کلمات اضافی
+                for word in [" - Site Name", " | Site Name", " - XXX", " | XXX"]:
+                    title = title.replace(word, "")
+                if title.strip():
+                    return title.strip()
+            
+            # روش ۲: از تگ h1 یا کلاس عنوان
+            try:
+                title_element = self.driver.find_element(By.CSS_SELECTOR, "h1.video-title, .video-title, .title, h1")
+                return title_element.text.strip()
+            except:
+                pass
+            
+            # روش ۳: از URL (آخرین راه)
+            if "/video-" in video_page_url:
+                parts = video_page_url.split("/")
+                for part in reversed(parts):
+                    if part and "video-" not in part:
+                        name = part.replace("_", " ").replace("-", " ")
+                        return name.title()
+            
+            return "ویدیو"
+            
+        except Exception as e:
+            logger.error(f"❌ خطا در گرفتن عنوان: {e}")
+            return "ویدیو"
+
     def get_final_video_url(self, video_page_url):
         """گرفتن لینک دانلود - فقط mp4-cdn یا gcore"""
         final_url = None
@@ -151,11 +184,7 @@ class VideoScraper:
             all_mp4_links = list(set(all_mp4_links))
             logger.info(f"🔍 {len(all_mp4_links)} لینک mp4 پیدا شد")
 
-            # =====================================================
             # فقط لینک‌های mp4-cdn یا gcore رو قبول کن
-            # =====================================================
-            
-            # اولویت ۱: mp4-cdn یا gcore
             for link in all_mp4_links:
                 if "mp4-cdn" in link or "gcore" in link:
                     final_url = link
@@ -168,7 +197,6 @@ class VideoScraper:
                     logger.info(f"⏭️ لینک bkcdn رد شد (تبلیغاتی)")
                     continue
 
-            # اگه هیچکدوم نبود
             if not final_url:
                 logger.warning(f"⚠️ هیچ لینک mp4-cdn یا gcore پیدا نشد، ویدیو رد شد.")
                 return None
@@ -208,9 +236,9 @@ class VideoScraper:
             logger.info("🔄 در حال فشرده‌سازی ویدیو...")
             output_path = "compressed_video.mp4"
             
-            scale = self.compression_config.get("scale", "480:320")
-            crf = self.compression_config.get("crf", 35)
-            audio_bitrate = self.compression_config.get("audio_bitrate", "48k")
+            scale = self.compression_config.get("scale", "640:360")
+            crf = self.compression_config.get("crf", 28)
+            audio_bitrate = self.compression_config.get("audio_bitrate", "96k")
             preset = self.compression_config.get("preset", "fast")
             
             cmd = [
@@ -277,7 +305,7 @@ class VideoScraper:
             return video_url
 
     def scrape(self):
-        """متد اصلی اسکرپ"""
+        """متد اصلی اسکرپ با عنوان"""
         all_video_paths = []
         homepage_links = self.get_video_page_links_from_homepage()
 
@@ -292,9 +320,30 @@ class VideoScraper:
         for link in links_to_process:
             video_url = self.get_final_video_url(link)
             if video_url:
+                # دریافت عنوان ویدیو
+                title = self.get_video_title(link)
+                logger.info(f"📝 عنوان ویدیو: {title}")
+                
                 result = self.download_and_compress_video(video_url)
                 if result and result.endswith('.mp4') and os.path.exists(result):
-                    all_video_paths.append(result)
+                    # تغییر نام فایل به عنوان ویدیو
+                    new_filename = f"{title[:50]}.mp4"
+                    # حذف کاراکترهای غیرمجاز
+                    new_filename = "".join(c for c in new_filename if c.isalnum() or c in (' ', '-', '_')).strip()
+                    if new_filename and not new_filename.endswith('.mp4'):
+                        new_filename += '.mp4'
+                    
+                    # اگه فایل با همون اسم وجود داشت، شماره بزار
+                    if os.path.exists(new_filename):
+                        base, ext = os.path.splitext(new_filename)
+                        counter = 1
+                        while os.path.exists(f"{base}_{counter}{ext}"):
+                            counter += 1
+                        new_filename = f"{base}_{counter}{ext}"
+                    
+                    os.rename(result, new_filename)
+                    all_video_paths.append(new_filename)
+                    logger.info(f"✅ فایل ذخیره شد با نام: {new_filename}")
                 else:
                     all_video_paths.append(video_url)
             else:

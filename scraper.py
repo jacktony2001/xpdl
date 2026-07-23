@@ -94,6 +94,7 @@ class VideoScraper:
             return []
 
     def get_final_video_url(self, video_page_url):
+        """گرفتن لینک دانلود - فقط mp4-cdn یا gcore"""
         final_url = None
         all_mp4_links = []
         
@@ -150,35 +151,36 @@ class VideoScraper:
             all_mp4_links = list(set(all_mp4_links))
             logger.info(f"🔍 {len(all_mp4_links)} لینک mp4 پیدا شد")
 
-            # اولویت ۱: bkcdn (پایدار)
-            for link in all_mp4_links:
-                if "bkcdn" in link:
-                    final_url = link
-                    logger.info(f"✅ لینک پایدار (bkcdn) انتخاب شد")
-                    return final_url
-
-            # اولویت ۲: mp4-cdn یا gcore
+            # =====================================================
+            # فقط لینک‌های mp4-cdn یا gcore رو قبول کن
+            # =====================================================
+            
+            # اولویت ۱: mp4-cdn یا gcore
             for link in all_mp4_links:
                 if "mp4-cdn" in link or "gcore" in link:
                     final_url = link
-                    logger.info(f"✅ لینک (mp4-cdn) انتخاب شد")
+                    logger.info(f"✅ لینک (mp4-cdn/gcore) انتخاب شد")
                     return final_url
 
-            # اولویت ۳: هر لینک دیگه
-            if all_mp4_links:
-                final_url = all_mp4_links[0]
-                logger.info(f"✅ لینک (fallback) انتخاب شد")
-                return final_url
+            # رد کردن bkcdn (تبلیغاتی)
+            for link in all_mp4_links:
+                if "bkcdn" in link:
+                    logger.info(f"⏭️ لینک bkcdn رد شد (تبلیغاتی)")
+                    continue
 
-            logger.warning(f"⚠️ هیچ لینک دانلودی پیدا نشد.")
-            return None
+            # اگه هیچکدوم نبود
+            if not final_url:
+                logger.warning(f"⚠️ هیچ لینک mp4-cdn یا gcore پیدا نشد، ویدیو رد شد.")
+                return None
+
+            return final_url
 
         except Exception as e:
             logger.error(f"❌ خطا: {e}")
             return None
 
     def download_and_compress_video(self, video_url):
-        """دانلود و فشرده‌سازی ویدیو با ffmpeg - نسخه نهایی با چند مرحله"""
+        """دانلود و فشرده‌سازی ویدیو با ffmpeg"""
         try:
             if not self.compression_config.get("enabled", True):
                 logger.info("ℹ️ فشرده‌سازی غیرفعال است")
@@ -198,13 +200,11 @@ class VideoScraper:
 
             max_size = self.compression_config.get("max_size_mb", 48)
             
-            # اگه حجم کمتر از حد مجازه، بدون فشرده‌سازی برگردون
             if original_size <= max_size:
                 logger.info(f"ℹ️ حجم ویدیو کمتر از {max_size} MB است، نیازی به فشرده‌سازی نیست")
                 os.remove(temp_file)
                 return video_url
 
-            # فشرده‌سازی مرحله اول
             logger.info("🔄 در حال فشرده‌سازی ویدیو...")
             output_path = "compressed_video.mp4"
             
@@ -239,13 +239,11 @@ class VideoScraper:
             final_size = os.path.getsize(output_path) / (1024 * 1024)
             logger.info(f"✅ فشرده‌سازی مرحله اول: {final_size:.2f} MB")
             
-            # اگه حجم بازم بالاست، با کیفیت پایین‌تر دوباره امتحان کن
             retry_count = 0
             while final_size > max_size and retry_count < 4:
                 retry_count += 1
                 logger.info(f"🔄 تلاش {retry_count}: فشرده‌سازی مجدد با کیفیت پایین‌تر...")
                 
-                # کاهش بیشتر کیفیت
                 new_crf = crf + (retry_count * 4)
                 new_width = max(320, 480 - (retry_count * 60))
                 new_height = max(240, 320 - (retry_count * 40))
@@ -253,7 +251,6 @@ class VideoScraper:
                 cmd[cmd.index("-crf") + 1] = str(new_crf)
                 cmd[cmd.index("-vf") + 1] = f"scale={new_width}:{new_height}"
                 
-                # کاهش بیت‌ریت صدا در تلاش‌های بعدی
                 if retry_count >= 2:
                     new_audio_bitrate = f"{max(24, 48 - (retry_count * 8))}k"
                     cmd[cmd.index("-b:a") + 1] = new_audio_bitrate
@@ -265,7 +262,6 @@ class VideoScraper:
                 if final_size <= max_size:
                     break
 
-            # اگه بازم بالاست، به عنوان لینک برگردون
             if final_size > max_size:
                 logger.warning(f"⚠️ حجم بازم بالاست ({final_size:.2f} MB)، ارسال به صورت لینک")
                 os.remove(output_path)
@@ -281,7 +277,7 @@ class VideoScraper:
             return video_url
 
     def scrape(self):
-        """متد اصلی اسکرپ با فشرده‌سازی"""
+        """متد اصلی اسکرپ"""
         all_video_paths = []
         homepage_links = self.get_video_page_links_from_homepage()
 
@@ -301,6 +297,8 @@ class VideoScraper:
                     all_video_paths.append(result)
                 else:
                     all_video_paths.append(video_url)
+            else:
+                logger.info(f"⏭️ ویدیو رد شد (لینک مناسب پیدا نشد)")
 
         if not all_video_paths:
             logger.warning("⚠️ هیچ ویدیویی استخراج نشد.")

@@ -1,12 +1,11 @@
 import os
 from dotenv import load_dotenv
 
-# بارگذاری متغیرهای محیطی از فایل .env
 load_dotenv()
 
-# توکن ربات تلگرام (از محیط یا secrets)
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+# اینجا اسم Secrets رو با اون چیزی که ساختید هماهنگ کنید
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # اسم جدید
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")      # اسم جدید
 WEBSITE_URL = os.getenv("WEBSITE_URL", "https://example.com")
 
 # تنظیمات کروم (برای محیط گیتهاب)

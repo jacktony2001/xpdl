@@ -17,7 +17,7 @@ def main():
     
     try:
         scraper = VideoScraper()
-        video_items = scraper.scrape()  # لیست مسیر فایل‌ها یا لینک‌ها
+        video_items = scraper.scrape()
         
         if not video_items:
             logger.warning("⚠️ هیچ ویدیویی پیدا نشد.")
@@ -28,27 +28,31 @@ def main():
         
         for item in video_items:
             # چک کن قبلاً فرستاده شده یا نه
-            if db.is_sent(item):
-                logger.info(f"⏭️ ویدیو قبلاً ارسال شده: {item[:50]}...")
+            item_hash = item[:100]  # برای دیتابیس
+            if db.is_sent(item_hash):
+                logger.info(f"⏭️ ویدیو قبلاً ارسال شده")
                 continue
             
             # ارسال
             if item.startswith(('http://', 'https://')):
                 # لینک
                 result = sender.send_link(item, "🎬 ویدیو جدید")
+                if result and result.get('ok'):
+                    db.mark_as_sent(item_hash)
+                    logger.info(f"✅ لینک ارسال شد")
             else:
                 # فایل محلی
-                result = sender.send_video_file(item, "🎬 ویدیو (فشرده‌شده)")
-                # پاک کردن فایل بعد از ارسال
+                result = sender.send_video_file(item, "🎬 ویدیو (فشرده)")
+                # پاک کردن فایل بعد از ارسال (موفق یا ناموفق)
                 if os.path.exists(item):
                     os.remove(item)
                     logger.info(f"🗑️ فایل پاک شد: {item}")
-            
-            if result and result.get('ok'):
-                db.mark_as_sent(item)
-                logger.info(f"✅ ارسال شد: {item[:50]}...")
-            else:
-                logger.error(f"❌ ارسال ناموفق: {item[:50]}...")
+                
+                if result and result.get('ok'):
+                    db.mark_as_sent(item_hash)
+                    logger.info(f"✅ ویدیو ارسال شد")
+                else:
+                    logger.error(f"❌ ارسال ناموفق")
         
         logger.info("🏁 فرآیند به پایان رسید.")
         

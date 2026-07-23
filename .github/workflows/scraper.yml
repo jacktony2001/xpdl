@@ -2,8 +2,8 @@ name: Scraper Auto Run
 
 on:
   schedule:
-    - cron: '0 */4 * * *'  # هر ۴ ساعت یکبار
-  workflow_dispatch:  # قابلیت اجرای دستی
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
 
 jobs:
   scrape-and-send:
@@ -23,6 +23,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
+    - name: Install ffmpeg
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+    
     - name: Setup Chrome
       uses: browser-actions/setup-chrome@v1
       with:
@@ -36,9 +41,8 @@ jobs:
       run: |
         python main.py
     
-    # ========== بخش جدید: آپلود فایل‌های دیباگ ==========
     - name: Upload debug files
-      if: always()  # حتی اگه خطا هم باشه، آپلود میکنه
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: debug-files-${{ github.run_id }}
@@ -46,6 +50,5 @@ jobs:
           *.html
           *.log
           *.db
-          *.txt
-        retention-days: 3  # فایل‌ها ۳ روز نگه داشته میشن
-    # ===================================================
+          *.mp4
+        retention-days: 3

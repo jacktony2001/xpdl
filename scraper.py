@@ -72,11 +72,10 @@ class VideoScraper:
             # سلکتورهای رایج برای پیدا کردن لینک صفحه ویدیوها در صفحه اصلی
             # این سلکتورها باید بر اساس ساختار سایت شما تنظیم بشن
             homepage_selectors = [
-                "a[href*='/watch']",  # لینک‌هایی که "/watch" دارن
-                "a[href*='/video/']", # لینک‌هایی که "/video/" دارن
-                "div.video-card a",    # لینک داخل div با کلاس video-card
-                "a.thumbnail-link",   # لینک با کلاس thumbnail-link
-                ".video-item a"        # لینک داخل div با کلاس video-item
+                "a.video-link",  # سلکتوری که در یکی از کدهای HTML دیده شد
+                "a[href*='/video-']", # لینک‌هایی که با /video- شروع می‌شوند
+                "div.mozaique.cust-nb-cols a", # لینک‌های داخل div با کلاس mozaique cust-nb-cols
+                "a.thumbnail" # لینک‌های با کلاس thumbnail
             ]
             
             elements = self._find_elements(homepage_selectors)
@@ -89,13 +88,11 @@ class VideoScraper:
                         href = WEBSITE_URL.rstrip('/') + href
                     
                     # جلوگیری از تکرار و لینک‌های نامرتبط
-                    if href not in video_page_links and ("/watch" in href or "/video/" in href):
+                    if href not in video_page_links and ("/video-" in href or "/watch" in href): # بررسی وجود /video- یا /watch در لینک
                         video_page_links.append(href)
 
             if not video_page_links:
                 logger.warning("⚠️ هیچ لینک صفحه‌ی ویدیویی در صفحه اصلی پیدا نشد!")
-                # لاگ کردن بخشی از کد صفحه برای دیباگ
-                # logger.info(f"ساختار صفحه اصلی: {self.driver.page_source[:500]}...") 
             else:
                 logger.info(f"✅ {len(video_page_links)} لینک صفحه ویدیو از صفحه اصلی پیدا شد.")
             
@@ -116,31 +113,27 @@ class VideoScraper:
             self.driver.get(video_page_url)
             time.sleep(SCRAPER_CONFIG.get("wait_time", 4))
 
-            # اینجا سلکتورهایی که گفتی رو وارد می‌کنیم:
+            # سلکتور برای پیدا کردن لینک دانلود بر اساس ساختار ارائه شده:
             # <p class="text-center download-ready">Download : <a href="...mp4"><strong>STANDARD</strong></a> file size.</p>
             
-            # اول تگ <p> با کلاس download-ready رو پیدا می‌کنیم
-            download_paragraph = self._find_elements(["p.text-center.download-ready"])
+            download_paragraph_selector = "p.text-center.download-ready a"
+            download_elements = self._find_elements([download_paragraph_selector])
             
-            if download_paragraph:
-                # بعد توی اون پاراگراف، تگ <a> رو پیدا می‌کنیم
-                link_element = download_paragraph[0].find_elements(By.TAG_NAME, "a")
-                if link_element:
-                    href = link_element[0].get_attribute("href")
-                    if href and href.endswith('.mp4'):
-                        final_url = href
-                        logger.info(f"✅ لینک دانلود ویدیو از صفحه اختصاصی پیدا شد: {final_url}")
-                        return final_url
+            if download_elements:
+                href = download_elements[0].get_attribute("href")
+                if href and href.endswith('.mp4'):
+                    final_url = href
+                    logger.info(f"✅ لینک دانلود ویدیو از سلکتور '{download_paragraph_selector}' پیدا شد: {final_url}")
+                    return final_url
 
-            # اگر با روش بالا پیدا نشد، می‌تونیم یه بک‌آپ داشته باشیم
-            # مثلاً دنبال لینک‌های mp4 در کل صفحه بگردیم (البته اولویت با روش بالا هست)
+            # اگر با روش بالا پیدا نشد، از بک‌آپ استفاده کن
             if not final_url:
                 logger.warning(f"⚠️ لینک دانلود مستقیم از صفحه {video_page_url} با روش اول پیدا نشد. در حال امتحان روش‌های عمومی‌تر...")
                 fallback_selectors = [
-                    "a[href$='.mp4']",
-                    "video[src$='.mp4']",
-                    "a[download]",
-                    ".download-btn a"
+                    "a[href$='.mp4']", # لینک‌هایی که با mp4 تمام میشن
+                    "video[src$='.mp4']", # تگ video که src آن mp4 باشد
+                    "a[download]", # تگ a که صفت download دارد
+                    ".download-btn a" # لینک داخل کلاسی که download-btn دارد
                 ]
                 for selector in fallback_selectors:
                     elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
@@ -153,8 +146,6 @@ class VideoScraper:
 
             if not final_url:
                 logger.warning(f"⚠️ لینک ویدیوی نهایی برای {video_page_url} پیدا نشد.")
-                # لاگ کردن بخشی از کد صفحه برای دیباگ
-                # logger.info(f"ساختار صفحه ویدیو: {self.driver.page_source[:500]}...")
 
             return final_url
 
@@ -169,7 +160,7 @@ class VideoScraper:
             return None
 
     def scrape(self):
-        """متد اصلی برای شروع اسکرپ دو مرحله‌ای"""
+        """متد اصلی برای شروع اسکرپ دو مرحله‌ای با محدودیت تعداد ویدیو"""
         all_final_video_urls = []
         homepage_links = self.get_video_page_links_from_homepage()
 
@@ -177,17 +168,23 @@ class VideoScraper:
             logger.warning("هیچ لینک صفحه‌ی ویدیویی برای پردازش بیشتر یافت نشد.")
             return []
 
-        processed_links = 0
-        for link in homepage_links:
-            # محدود کردن تعداد ویدیوها برای تست سریع
-            if processed_links >= SCRAPER_CONFIG.get("max_videos_to_process", 10): # مثلاً حداکثر ۱۰ ویدیو رو پردازش کن
-                logger.info(f"Reached max videos to process ({SCRAPER_CONFIG.get('max_videos_to_process', 10)}). Stopping.")
-                break
-                
+        # محدود کردن تعداد ویدیوها به 10 تا
+        max_videos_to_process = 10 
+        
+        # پردازش لینک‌ها به ترتیب یافت شدن، و فقط تا حداکثر تعداد مشخص شده
+        links_to_process = homepage_links[:max_videos_to_process]
+        
+        logger.info(f"شروع پردازش {len(links_to_process)} لینک ویدیو از صفحه اصلی...")
+
+        processed_count = 0
+        for link in links_to_process:
             final_url = self.get_final_video_url(link)
             if final_url:
                 all_final_video_urls.append(final_url)
-            processed_links += 1
+            processed_count += 1
+            if processed_count >= max_videos_to_process:
+                logger.info(f"به حداکثر تعداد ویدیو ({max_videos_to_process}) پردازش شده رسید.")
+                break
         
         if not all_final_video_urls:
             logger.warning("⚠️ هیچ لینک ویدیوی نهایی استخراج نشد.")

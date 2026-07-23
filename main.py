@@ -1,76 +1,52 @@
-from config import *
-from scraper import ContentScraper
+import logging
+from scraper import VideoScraper
 from telegram_sender import TelegramSender
 from database import Database
+from config import BOT_TOKEN, CHAT_ID
+
+# تنظیم لاگ
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def main():
-    print("🚀 Starting scraper...")
+    logger.info("🚀 شروع فرآیند اسکرپ و ارسال ویدیو")
     
-    if TELEGRAM_BOT_TOKEN == 'YOUR_BOT_TOKEN':
-        print("❌ Set TELEGRAM_BOT_TOKEN in Secrets!")
+    # بررسی توکن و چت‌آیدی
+    if not BOT_TOKEN or not CHAT_ID:
+        logger.error("❌ توکن یا چت‌آیدی تنظیم نشده! لطفاً Secrets رو چک کن.")
         return
     
-    db = Database()
-    scraper = ContentScraper(headless=HEADLESS)
-    sender = TelegramSender(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
-    
     try:
-        links = scraper.get_video_links(BASE_URL, SELECTORS)
-        if not links:
-            print("⚠️ No links found")
+        # ۱. اسکرپ کردن
+        scraper = VideoScraper()
+        video_links = scraper.scrape()
+        
+        if not video_links:
+            logger.warning("⚠️ هیچ ویدیویی برای ارسال وجود ندارد.")
             return
         
-        new_links = [l for l in links if not db.is_sent(l)]
-        print(f"🆕 New videos: {len(new_links)}")
+        # ۲. اتصال به دیتابیس
+        db = Database()
+        new_videos = db.get_new_videos(video_links)
         
-        if not new_links:
-            print("✅ Nothing new")
+        if not new_videos:
+            logger.info("ℹ️ همه ویدیوها قبلاً ارسال شده‌اند.")
             return
         
-        new_links = new_links[:MAX_VIDEOS_PER_RUN]
-        sent = 0
+        # ۳. ارسال به تلگرام
+        sender = TelegramSender(BOT_TOKEN, CHAT_ID)
+        for video in new_videos:
+            success = sender.send_video(video)
+            if success:
+                db.mark_as_sent(video)
+                logger.info(f"✅ ویدیو ارسال شد: {video}")
+            else:
+                logger.error(f"❌ ارسال ویدیو ناموفق: {video}")
         
-        for link in new_links:
-            try:
-                print(f"\n📥 {link}")
-                details = scraper.get_video_details(link, SELECTORS)
-                
-                if not details or not details.get('title'):
-                    print("⚠️ No details")
-                    continue
-                
-                if any(p in details['title'].lower() for p in EXCLUDE_PATTERNS):
-                    print("🚫 Excluded")
-                    continue
-                
-                print(f"📝 {details['title'][:60]}")
-                print(f"🎬 Video: {details['video_src'][:80] if details['video_src'] else 'Not found'}")
-                
-                result = sender.send_content(details)
-                
-                if result and result.get('ok'):
-                    db.mark_as_sent(link, details['title'])
-                    sent += 1
-                    print("✅ Sent")
-                else:
-                    print(f"❌ Failed: {result}")
-                
-                import time
-                time.sleep(3)
-                
-            except Exception as e:
-                print(f"❌ Error: {e}")
-                continue
-        
-        print(f"\n🎉 Done! Sent {sent}/{len(new_links)}")
-        print(f"📊 Total: {db.get_stats()}")
+        logger.info("🏁 فرآیند با موفقیت به پایان رسید.")
         
     except Exception as e:
-        print(f"❌ Fatal: {e}")
-        import traceback
-        traceback.print_exc()
-    finally:
-        scraper.close()
+        logger.error(f"💥 خطای کلی در برنامه: {e}")
 
 if __name__ == "__main__":
     main()

@@ -26,22 +26,27 @@ def main():
         db = Database()
         sender = TelegramSender(BOT_TOKEN, CHAT_ID)
         
-        for item in video_items:
+        for entry in video_items:
+            # کلید پایدار برای dedup: آدرس صفحه ویدیو (نه مسیر فایل محلی)
+            key = entry.get("page_url") or entry.get("result", "")
+            item = entry.get("result")
+            is_file = entry.get("is_file", False)
+            title = entry.get("title", "")
+
+            if not item:
+                continue
+
             # چک کن قبلاً فرستاده شده یا نه
-            item_hash = item[:100]  # برای دیتابیس
-            if db.is_sent(item_hash):
-                logger.info(f"⏭️ ویدیو قبلاً ارسال شده")
+            if db.is_sent(key):
+                logger.info(f"⏭️ ویدیو قبلاً ارسال شده: {key}")
+                # پاک کردن فایل محلی در صورت وجود
+                if is_file and os.path.exists(item):
+                    os.remove(item)
+                    logger.info(f"🗑️ فایل پاک شد: {item}")
                 continue
             
-            # ارسال
-            if item.startswith(('http://', 'https://')):
-                # لینک
-                result = sender.send_link(item, "🎬 ویدیو جدید")
-                if result and result.get('ok'):
-                    db.mark_as_sent(item_hash)
-                    logger.info(f"✅ لینک ارسال شد")
-            else:
-                # فایل محلی
+            if is_file:
+                # فایل محلی (فشرده‌شده)
                 result = sender.send_video_file(item, "🎬 ویدیو (فشرده)")
                 # پاک کردن فایل بعد از ارسال (موفق یا ناموفق)
                 if os.path.exists(item):
@@ -49,8 +54,16 @@ def main():
                     logger.info(f"🗑️ فایل پاک شد: {item}")
                 
                 if result and result.get('ok'):
-                    db.mark_as_sent(item_hash)
+                    db.mark_as_sent(key, title)
                     logger.info(f"✅ ویدیو ارسال شد")
+                else:
+                    logger.error(f"❌ ارسال ناموفق")
+            else:
+                # لینک
+                result = sender.send_link(item, "🎬 ویدیو جدید")
+                if result and result.get('ok'):
+                    db.mark_as_sent(key, title)
+                    logger.info(f"✅ لینک ارسال شد")
                 else:
                     logger.error(f"❌ ارسال ناموفق")
         

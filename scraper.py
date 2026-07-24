@@ -93,41 +93,7 @@ class VideoScraper:
             logger.error(f"❌ خطا: {e}")
             return []
 
-    def get_video_title(self, video_page_url):
-        """گرفتن عنوان ویدیو از صفحه"""
-        try:
-            # روش ۱: از تگ title
-            title = self.driver.title
-            if title:
-                # پاک کردن کلمات اضافی
-                for word in [" - Site Name", " | Site Name", " - XXX", " | XXX"]:
-                    title = title.replace(word, "")
-                if title.strip():
-                    return title.strip()
-            
-            # روش ۲: از تگ h1 یا کلاس عنوان
-            try:
-                title_element = self.driver.find_element(By.CSS_SELECTOR, "h1.video-title, .video-title, .title, h1")
-                return title_element.text.strip()
-            except:
-                pass
-            
-            # روش ۳: از URL (آخرین راه)
-            if "/video-" in video_page_url:
-                parts = video_page_url.split("/")
-                for part in reversed(parts):
-                    if part and "video-" not in part:
-                        name = part.replace("_", " ").replace("-", " ")
-                        return name.title()
-            
-            return "ویدیو"
-            
-        except Exception as e:
-            logger.error(f"❌ خطا در گرفتن عنوان: {e}")
-            return "ویدیو"
-
     def get_final_video_url(self, video_page_url):
-        """گرفتن لینک دانلود - فقط mp4-cdn یا gcore"""
         final_url = None
         all_mp4_links = []
         
@@ -184,31 +150,67 @@ class VideoScraper:
             all_mp4_links = list(set(all_mp4_links))
             logger.info(f"🔍 {len(all_mp4_links)} لینک mp4 پیدا شد")
 
-            # فقط لینک‌های mp4-cdn یا gcore رو قبول کن
+            # اولویت ۱: bkcdn (پایدار)
+            for link in all_mp4_links:
+                if "bkcdn" in link:
+                    final_url = link
+                    logger.info(f"✅ لینک پایدار (bkcdn) انتخاب شد")
+                    return final_url
+
+            # اولویت ۲: mp4-cdn یا gcore
             for link in all_mp4_links:
                 if "mp4-cdn" in link or "gcore" in link:
                     final_url = link
-                    logger.info(f"✅ لینک (mp4-cdn/gcore) انتخاب شد")
+                    logger.info(f"✅ لینک (mp4-cdn) انتخاب شد")
                     return final_url
 
-            # رد کردن bkcdn (تبلیغاتی)
-            for link in all_mp4_links:
-                if "bkcdn" in link:
-                    logger.info(f"⏭️ لینک bkcdn رد شد (تبلیغاتی)")
-                    continue
+            # اولویت ۳: هر لینک دیگه
+            if all_mp4_links:
+                final_url = all_mp4_links[0]
+                logger.info(f"✅ لینک (fallback) انتخاب شد")
+                return final_url
 
-            if not final_url:
-                logger.warning(f"⚠️ هیچ لینک mp4-cdn یا gcore پیدا نشد، ویدیو رد شد.")
-                return None
-
-            return final_url
+            logger.warning(f"⚠️ هیچ لینک دانلودی پیدا نشد.")
+            return None
 
         except Exception as e:
             logger.error(f"❌ خطا: {e}")
             return None
 
+    def _run_ffmpeg(self, input_file, output_file, crf, scale, audio_bitrate):
+        """ساخت و اجرای دستور ffmpeg. همیشه از فایل ورودی داده‌شده می‌خونه."""
+        preset = self.compression_config.get("preset", "fast")
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", input_file,
+            "-vf", f"scale={scale}",
+            "-c:v", "libx264",
+            "-crf", str(crf),
+            "-preset", preset,
+            "-c:a", "aac",
+            "-b:a", audio_bitrate,
+            "-movflags", "+faststart",
+            output_file
+        ]
+        logger.info(f"🎞 ffmpeg: crf={crf} scale={scale} audio={audio_bitrate}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.error(f"❌ خطا در ffmpeg: {result.stderr[-500:]}")
+            return False
+        return True
+
     def download_and_compress_video(self, video_url):
-        """دانلود و فشرده‌سازی ویدیو با ffmpeg"""
+        """دانلود و فشرده‌سازی ویدیو با ffmpeg - نسخه اصلاح‌شده.
+
+        رفع باگ: در نسخه قبلی فایل موقت دانلود (temp_file) قبل از حلقه
+        retry پاک می‌شد، ولی دستور ffmpeg هنوز همون فایل رو به عنوان ورودی
+        می‌خوند → تلاش‌های بعدی با خطای «فایل پیدا نشد» شکست می‌خوردن و حجم
+        تغییر نمی‌کرد. حالا ورودی همیشه فایل اصلی دانلود شده‌ست و تا آخر نگه
+        داشته می‌شه.
+        """
+        temp_file = "temp_video.mp4"
+        output_path = "compressed_video.mp4"
         try:
             if not self.compression_config.get("enabled", True):
                 logger.info("ℹ️ فشرده‌سازی غیرفعال است")
@@ -216,83 +218,77 @@ class VideoScraper:
 
             logger.info(f"📥 دانلود ویدیو...")
             response = requests.get(video_url, stream=True, timeout=120)
-            temp_file = "temp_video.mp4"
-            
+            response.raise_for_status()
             with open(temp_file, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-            
+
             original_size = os.path.getsize(temp_file) / (1024 * 1024)
             logger.info(f"📊 حجم اصلی: {original_size:.2f} MB")
 
             max_size = self.compression_config.get("max_size_mb", 48)
-            
+
+            # اگه حجم کمتر از حد مجازه، بدون فشرده‌سازی برگردون
             if original_size <= max_size:
                 logger.info(f"ℹ️ حجم ویدیو کمتر از {max_size} MB است، نیازی به فشرده‌سازی نیست")
                 os.remove(temp_file)
                 return video_url
 
+            # پاک کردن خروجی‌های قدیمی (اگه از اجرای قبلی مونده باشن)
+            for f in (output_path, "compressed_retry_tmp.mp4"):
+                if os.path.exists(f):
+                    os.remove(f)
+
+            scale = self.compression_config.get("scale", "480:320")
+            crf = self.compression_config.get("crf", 35)
+            audio_bitrate = self.compression_config.get("audio_bitrate", "48k")
+
+            # فشرده‌سازی مرحله اول (از روی فایل اصلی دانلود‌شده)
             logger.info("🔄 در حال فشرده‌سازی ویدیو...")
-            output_path = "compressed_video.mp4"
-            
-            scale = self.compression_config.get("scale", "640:360")
-            crf = self.compression_config.get("crf", 28)
-            audio_bitrate = self.compression_config.get("audio_bitrate", "96k")
-            preset = self.compression_config.get("preset", "fast")
-            
-            cmd = [
-                "ffmpeg",
-                "-i", temp_file,
-                "-vf", f"scale={scale}",
-                "-c:v", "libx264",
-                "-crf", str(crf),
-                "-preset", preset,
-                "-c:a", "aac",
-                "-b:a", audio_bitrate,
-                "-movflags", "+faststart",
-                "-y",
-                output_path
-            ]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            if result.returncode != 0:
-                logger.error(f"❌ خطا در ffmpeg: {result.stderr}")
+            if not self._run_ffmpeg(temp_file, output_path, crf, scale, audio_bitrate):
                 os.remove(temp_file)
                 return video_url
 
-            os.remove(temp_file)
-            
             final_size = os.path.getsize(output_path) / (1024 * 1024)
             logger.info(f"✅ فشرده‌سازی مرحله اول: {final_size:.2f} MB")
-            
+
+            # تلاش‌های بعدی: همیشه از فایل اصلی (temp_file) دوباره encode می‌کنیم
+            # تا کیفیت تجمعی خراب نشه و ورودی همیشه وجود داشته باشه.
             retry_count = 0
             while final_size > max_size and retry_count < 4:
                 retry_count += 1
                 logger.info(f"🔄 تلاش {retry_count}: فشرده‌سازی مجدد با کیفیت پایین‌تر...")
-                
+
                 new_crf = crf + (retry_count * 4)
                 new_width = max(320, 480 - (retry_count * 60))
                 new_height = max(240, 320 - (retry_count * 40))
-                
-                cmd[cmd.index("-crf") + 1] = str(new_crf)
-                cmd[cmd.index("-vf") + 1] = f"scale={new_width}:{new_height}"
-                
+                new_audio = audio_bitrate
                 if retry_count >= 2:
-                    new_audio_bitrate = f"{max(24, 48 - (retry_count * 8))}k"
-                    cmd[cmd.index("-b:a") + 1] = new_audio_bitrate
-                
-                subprocess.run(cmd, capture_output=True, text=True)
+                    new_audio = f"{max(24, 48 - (retry_count * 8))}k"
+
+                if not self._run_ffmpeg(
+                    temp_file, output_path,
+                    new_crf, f"{new_width}:{new_height}", new_audio
+                ):
+                    logger.error(f"❌ فشرده‌سازی تلاش {retry_count} شکست خورد.")
+                    break
+
                 final_size = os.path.getsize(output_path) / (1024 * 1024)
                 logger.info(f"✅ حجم نهایی: {final_size:.2f} MB")
-                
+
                 if final_size <= max_size:
                     break
 
+            # پاک کردن فایل دانلود‌شده اصلی
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+            # اگه بازم بالاست، به عنوان لینک برگردون
             if final_size > max_size:
                 logger.warning(f"⚠️ حجم بازم بالاست ({final_size:.2f} MB)، ارسال به صورت لینک")
-                os.remove(output_path)
+                if os.path.exists(output_path):
+                    os.remove(output_path)
                 return video_url
 
             logger.info(f"✅ فشرده‌سازی موفق! حجم نهایی: {final_size:.2f} MB")
@@ -300,61 +296,56 @@ class VideoScraper:
 
         except Exception as e:
             logger.error(f"❌ خطا در فشرده‌سازی: {e}")
-            if os.path.exists("temp_video.mp4"):
-                os.remove("temp_video.mp4")
+            for f in (temp_file, output_path, "compressed_retry_tmp.mp4"):
+                if os.path.exists(f):
+                    os.remove(f)
             return video_url
 
     def scrape(self):
-        """متد اصلی اسکرپ با عنوان"""
-        all_video_paths = []
+        """متد اصلی اسکرپ با فشرده‌سازی.
+
+        خروجی: لیستی از دیکشنری‌ها با کلیدهای
+        page_url, result, is_file, title
+        (برای dedup درست در main.py از page_url استفاده می‌شه).
+        """
+        all_items = []
         homepage_links = self.get_video_page_links_from_homepage()
 
         if not homepage_links:
             logger.warning("هیچ لینک ویدیویی پیدا نشد.")
             return []
 
-        max_videos_to_process = 6
+        max_videos_to_process = 3
         links_to_process = homepage_links[:max_videos_to_process]
         logger.info(f"پردازش {len(links_to_process)} ویدیو...")
 
         for link in links_to_process:
-            video_url = self.get_final_video_url(link)
-            if video_url:
-                # دریافت عنوان ویدیو
-                title = self.get_video_title(link)
-                logger.info(f"📝 عنوان ویدیو: {title}")
-                
-                result = self.download_and_compress_video(video_url)
-                if result and result.endswith('.mp4') and os.path.exists(result):
-                    # تغییر نام فایل به عنوان ویدیو
-                    new_filename = f"{title[:50]}.mp4"
-                    # حذف کاراکترهای غیرمجاز
-                    new_filename = "".join(c for c in new_filename if c.isalnum() or c in (' ', '-', '_')).strip()
-                    if new_filename and not new_filename.endswith('.mp4'):
-                        new_filename += '.mp4'
-                    
-                    # اگه فایل با همون اسم وجود داشت، شماره بزار
-                    if os.path.exists(new_filename):
-                        base, ext = os.path.splitext(new_filename)
-                        counter = 1
-                        while os.path.exists(f"{base}_{counter}{ext}"):
-                            counter += 1
-                        new_filename = f"{base}_{counter}{ext}"
-                    
-                    os.rename(result, new_filename)
-                    all_video_paths.append(new_filename)
-                    logger.info(f"✅ فایل ذخیره شد با نام: {new_filename}")
-                else:
-                    all_video_paths.append(video_url)
-            else:
-                logger.info(f"⏭️ ویدیو رد شد (لینک مناسب پیدا نشد)")
+            try:
+                video_url = self.get_final_video_url(link)
+                if not video_url:
+                    continue
 
-        if not all_video_paths:
+                result = self.download_and_compress_video(video_url)
+                is_file = bool(result and result.endswith('.mp4') and os.path.exists(result))
+
+                entry = {
+                    "page_url": link,
+                    "source_url": video_url,
+                    "result": result,
+                    "is_file": is_file,
+                    "title": ""
+                }
+                all_items.append(entry)
+            except Exception as e:
+                logger.error(f"❌ خطا در پردازش {link}: {e}")
+                continue
+
+        if not all_items:
             logger.warning("⚠️ هیچ ویدیویی استخراج نشد.")
         else:
-            logger.info(f"✅ {len(all_video_paths)} ویدیو آماده ارسال شد.")
+            logger.info(f"✅ {len(all_items)} ویدیو آماده ارسال شد.")
 
-        return all_video_paths
+        return all_items
 
     def __del__(self):
         if self.driver:
